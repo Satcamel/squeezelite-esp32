@@ -11,12 +11,16 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
+#include <stdarg.h>
+#include <stddef.h>
 #include <math.h>
 #include "esp_log.h"
 #include "esp_http_server.h"
 #include "platform_config.h"
 typedef uint8_t u8_t;
 #include "equalizer.h"
+#include "cspot_sink.h"
 
 #define UI_BANDS	6
 #define EQ_BANDS	10
@@ -51,8 +55,12 @@ static const char eq_page[] =
 "input[type=range]{width:100%;accent-color:var(--acc)}"
 "button{font:inherit;padding:10px 16px;border-radius:10px;border:0;background:var(--acc);color:#fff}"
 "a{color:var(--acc)}#st{color:var(--mut);margin-left:12px}"
+".warn{background:#b3261e;color:#fff;border-radius:12px;padding:12px 16px;margin-bottom:16px}.warn a{color:#fff}"
 "</style></head><body><main>"
 "<h1>Equalizer</h1>"
+"<div class=\"warn\" id=\"key\" hidden><b>Spotify-Schl&uuml;ssel ung&uuml;ltig.</b> Spotify lehnt Client-ID/Secret ab. "
+"Im <a href=\"https://developer.spotify.com/dashboard\" target=\"_blank\" rel=\"noopener\">Spotify-Dashboard</a> pr&uuml;fen, "
+"die GitHub-Secrets SPOTIFY_CLIENT_ID/SECRET erneuern und die Firmware neu bauen.</div>"
 "<div class=\"card\" id=\"eq\"></div>"
 "<div class=\"card\"><div class=\"row\"><label for=\"l\">Loudness</label>"
 "<input type=\"range\" id=\"l\" min=\"0\" max=\"10\" step=\"1\"><output id=\"lo\"></output></div></div>"
@@ -66,7 +74,8 @@ static const char eq_page[] =
 "const B=F.map((f,i)=>document.getElementById('b'+i));"
 "function show(){B.forEach((b,i)=>{const v=+b.value;document.getElementById('o'+i).textContent=(v>0?'+':'')+v+' dB'});"
 "lo.textContent=l.value==0?'aus':l.value}"
-"function fill(d){d.bands.forEach((v,i)=>B[i].value=v);l.value=d.loudness;show()}"
+"function fill(d){d.bands.forEach((v,i)=>B[i].value=v);l.value=d.loudness;"
+"document.getElementById('key').hidden=d.spotify_key!==false;show()}"
 "function send(){clearTimeout(t);t=setTimeout(()=>{st.textContent='...';"
 "fetch('/eq.json',{method:'POST',body:'b='+B.map(b=>b.value).join(',')+'&l='+l.value})"
 ".then(r=>r.json()).then(d=>{fill(d);st.textContent='gespeichert'}).catch(()=>st.textContent='Fehler')},250)}"
@@ -117,11 +126,11 @@ static void load_ui_gain(void) {
  *
  */
 static esp_err_t send_state(httpd_req_t *req) {
-	char json[96];
+	char json[112];
 
-	snprintf(json, sizeof(json), "{\"bands\":[%d,%d,%d,%d,%d,%d],\"loudness\":%u}",
+	snprintf(json, sizeof(json), "{\"bands\":[%d,%d,%d,%d,%d,%d],\"loudness\":%u,\"spotify_key\":%s}",
 			 ui_gain[0], ui_gain[1], ui_gain[2], ui_gain[3], ui_gain[4], ui_gain[5],
-			 (unsigned) equalizer_get_loudness());
+			 (unsigned) equalizer_get_loudness(), cspot_credentials_ok() ? "true" : "false");
 
 	httpd_resp_set_type(req, HTTPD_TYPE_JSON);
 	httpd_resp_set_hdr(req, "Cache-Control", "no-store");

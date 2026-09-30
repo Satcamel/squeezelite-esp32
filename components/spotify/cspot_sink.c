@@ -29,6 +29,28 @@ static const char TAG[] = "cspot";
 static struct cspot_s *cspot;
 static cspot_cmd_vcb_t cmd_handler_chain;
 
+// set by cspot when Spotify refuses the client id/secret compiled in
+extern volatile int cspot_credentials_rejected;
+extern void (*cspot_credentials_cb)(int rejected);
+
+/****************************************************************************************
+ * Warn on the display when the Spotify client id/secret stop working
+ */
+static void cspot_credentials_handler(int rejected) {
+	if (!rejected) {
+		ESP_LOGI(TAG, "Spotify client credentials accepted again");
+		return;
+	}
+
+	ESP_LOGE(TAG, "Spotify rejected the client id/secret, firmware must be rebuilt with new ones");
+	displayer_control(DISPLAYER_ACTIVATE, "SPOTIFY", false);
+	displayer_scroll("Schluessel ungueltig - siehe /eq", 0, 0);
+}
+
+bool cspot_credentials_ok(void) {
+	return !cspot_credentials_rejected;
+}
+
 static void cspot_volume_up(bool pressed) {
 	if (!pressed) return;
 	cspot_cmd(cspot, CSPOT_VOLUME_UP, NULL);
@@ -179,6 +201,7 @@ static void cspot_sink_start(nm_state_t state_id, int sub_state) {
 void cspot_sink_init(cspot_cmd_vcb_t cmd_cb, cspot_data_cb_t data_cb) {
 	cspot_cbs.cmd = cmd_cb;
 	cspot_cbs.data = data_cb;
+	cspot_credentials_cb = cspot_credentials_handler;
 
 	network_register_state_callback(NETWORK_WIFI_ACTIVE_STATE, WIFI_CONNECTED_STATE, "cspot_sink_start", cspot_sink_start);
 	network_register_state_callback(NETWORK_ETH_ACTIVE_STATE, ETH_ACTIVE_CONNECTED_STATE, "cspot_sink_start", cspot_sink_start);

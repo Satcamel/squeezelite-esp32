@@ -42,6 +42,11 @@ void cspot_sink_init(cspot_cmd_vcb_t cmd_cb, cspot_data_cb_t data_cb);
  */
 void cspot_disconnect(void);
 
+/**
+ * @brief     false when Spotify has refused the client id/secret compiled in
+ */
+bool cspot_credentials_ok(void);
+
 #ifdef __cplusplus
 }
 #endif
