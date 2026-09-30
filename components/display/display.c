@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include "esp_log.h"
+#include "esp_wifi.h"
 #include "globdefs.h"
 #include "platform_config.h"
 #include "tools.h"
@@ -33,6 +34,15 @@ static const char *TAG = "display";
 #define HEADER_SIZE				64
 #define	DEFAULT_SLEEP			3600
 #define ARTWORK_BORDER			1
+
+#define WIFI_BARS				4
+#define WIFI_BAR_WIDTH			2
+#define WIFI_BAR_GAP			1
+#define WIFI_ICON_WIDTH			(WIFI_BARS * (WIFI_BAR_WIDTH + WIFI_BAR_GAP) - WIFI_BAR_GAP)
+#define WIFI_ICON_HEIGHT		(WIFI_BARS * 2)
+#define WIFI_ICON_RESERVE		(WIFI_ICON_WIDTH + 2)
+#define WIFI_POLL_MS			3000
+#define WIFI_STACK_SIZE			(3*1024)
 
 extern const uint8_t default_artwork[]   asm("_binary_note_jpg_start");
 
@@ -78,6 +88,11 @@ static const char *known_drivers[] = {"SH1106",
     
 static void displayer_task(void *args);
 static void display_sleep(void);
+static void wifi_icon_task(void *args);
+static void wifi_icon_overlay(struct GDS_Device *Device);
+
+// -1 means not connected, otherwise number of bars 0..WIFI_BARS
+static int wifi_level = -1;
 
 struct GDS_Device *display;   
 extern GDS_DetectFunc SSD1306_Detect, SSD132x_Detect, SH1106_Detect, SH1122_Detect, SSD1675_Detect, SSD1322_Detect, SSD1351_Detect, ST77xx_Detect, ILI9341_Detect;
@@ -168,6 +183,13 @@ void display_init(char *welcome) {
 		// set lines for "fixed" text mode
 		GDS_TextSetFontAuto(display, 1, GDS_FONT_LINE_1, -3);
 		GDS_TextSetFontAuto(display, 2, GDS_FONT_LINE_2, -3);
+
+		// wifi signal icon in the top-right corner, kept up to date by its own task
+		// (internal stack as it calls the wifi driver)
+		if (width >= 64 && height >= 32) {
+			GDS_SetOverlay(display, wifi_icon_overlay, WIFI_ICON_RESERVE);
+			xTaskCreate( (TaskFunction_t) wifi_icon_task, "wifi_icon", WIFI_STACK_SIZE, NULL, ESP_TASK_PRIO_MIN + 1, NULL);
+		}
 		
 		displayer.metadata_config = config_alloc_get(NVS_TYPE_STR, "metadata_config");
 		
@@ -191,6 +213,59 @@ void display_init(char *welcome) {
  */
 static void display_sleep(void) {
     GDS_DisplayOff(display);
+}
+
+/****************************************************************************************
+ * Draw wifi bars in the top-right corner. Called by GDS right before each update, so
+ * whoever owns the display, the icon stays on top.
+ */
+static void wifi_icon_overlay(struct GDS_Device *Device) {
+	int x0 = GDS_GetWidth(Device) - WIFI_ICON_WIDTH;
+	int level = wifi_level;
+
+	GDS_ClearWindow(Device, x0 - 1, 0, x0 + WIFI_ICON_WIDTH - 1, WIFI_ICON_HEIGHT - 1, GDS_COLOR_BLACK);
+
+	for (int i = 0; i < WIFI_BARS; i++) {
+		int x = x0 + i * (WIFI_BAR_WIDTH + WIFI_BAR_GAP);
+		int h = (i + 1) * 2;
+
+		// active bars are filled, inactive ones are only a baseline dot
+		if (i < level) GDS_DrawBox(Device, x, WIFI_ICON_HEIGHT - h, x + WIFI_BAR_WIDTH - 1, WIFI_ICON_HEIGHT - 1, GDS_COLOR_WHITE, true);
+		else GDS_DrawHLine(Device, x, WIFI_ICON_HEIGHT - 1, WIFI_BAR_WIDTH, GDS_COLOR_WHITE);
+	}
+
+	// not connected: small cross on the left of the bars
+	if (level < 0) {
+		GDS_DrawLine(Device, x0, 0, x0 + 3, 3, GDS_COLOR_WHITE);
+		GDS_DrawLine(Device, x0, 3, x0 + 3, 0, GDS_COLOR_WHITE);
+	}
+}
+
+/****************************************************************************************
+ * Poll wifi signal strength and refresh display when the number of bars changes
+ */
+static void wifi_icon_task(void *args) {
+	while (1) {
+		wifi_ap_record_t ap;
+		int level = -1;
+
+		if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+			if (ap.rssi >= -55) level = 4;
+			else if (ap.rssi >= -65) level = 3;
+			else if (ap.rssi >= -75) level = 2;
+			else if (ap.rssi >= -85) level = 1;
+			else level = 0;
+		}
+
+		if (level != wifi_level) {
+			ESP_LOGI(TAG, "wifi level %d", level);
+			wifi_level = level;
+			GDS_SetDirty(display);
+			GDS_Update(display);
+		}
+
+		vTaskDelay(pdMS_TO_TICKS(WIFI_POLL_MS));
+	}
 }
 
 /****************************************************************************************
@@ -423,7 +498,7 @@ void displayer_timer(enum displayer_time_e mode, int elapsed, int duration) {
 
 		char *buf;
 		asprintf(&buf, "%s %s/%s", displayer.header, displayer.duration.string, displayer.duration.string);
-		if (GDS_GetTextWidth(display, 1, 0, buf) > GDS_GetWidth(display)) {
+		if (GDS_GetTextWidth(display, 1, 0, buf) > GDS_GetWidth(display) - GDS_GetOverlayReserve(display)) {
 			ESP_LOGW(TAG, "Can't fit duration %s (%d) on screen using elapsed only", buf, GDS_GetTextWidth(display, 1, 0, buf));
 			displayer.duration.visible = false;
 		}

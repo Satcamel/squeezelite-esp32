@@ -1,0 +1,43 @@
+# Builds the Amped-ESP32 "Gartenhaus" firmware (16 bits, I2S-4MFlash) with Sonocotta's sdkconfig
+name: Gartenhaus build
+
+on:
+  push:
+    branches:
+      - gartenhaus
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: sle118/squeezelite-esp32-idfv435
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory '*'
+          . /opt/esp/python_env/idf4.3_py3.8_env/bin/activate
+          pip install --upgrade protobuf grpcio-tools
+
+          idf.py fullclean
+          cp gartenhaus/sdkconfig.esp32 sdkconfig
+          echo "I2S-4MFlash.gartenhaus.16bit.${GITHUB_SHA::8}" > version.txt
+          idf.py build -DDEPTH=16 -DBUILD_NUMBER=500-16
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: gartenhaus-esp32-16bit
+          path: |
+            build/squeezelite.bin
+            build/recovery.bin
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            build/ota_data_initial.bin

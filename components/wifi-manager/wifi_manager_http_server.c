@@ -147,7 +147,7 @@ esp_err_t http_server_start()
     strlcpy(rest_context->base_path, "/res/", sizeof(rest_context->base_path));
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 30;
+    config.max_uri_handlers = 34;
     config.max_open_sockets = 3;
 	config.lru_purge_enable = true;
 	config.backlog_conn = 1;

@@ -28,6 +28,10 @@
 static struct GDS_Device Display;
 static struct GDS_BacklightPWM PWMConfig;
 
+// overlay drawn on top of every update (e.g. status icons) and width it reserves on line 1
+static GDS_OverlayFunc *OverlayCB;
+static int OverlayReserve;
+
 static char TAG[] = "gds";
 
 struct GDS_Device* GDS_AutoDetect( char *Driver, GDS_DetectFunc* DetectFunc[], struct GDS_BacklightPWM* PWM ) {
@@ -158,9 +162,20 @@ void GDS_ClearWindow( struct GDS_Device* Device, int x1, int y1, int x2, int y2,
 }
 
 void GDS_Update( struct GDS_Device* Device ) {
-	if (Device->Dirty) Device->Update( Device );
+	if (Device->Dirty) {
+		if (OverlayCB) OverlayCB( Device );
+		Device->Update( Device );
+	}
 	Device->Dirty = false;
 }
+
+void GDS_SetOverlay( struct GDS_Device* Device, GDS_OverlayFunc *Overlay, int Reserve ) {
+	OverlayCB = Overlay;
+	OverlayReserve = Overlay ? Reserve : 0;
+	if (Device) Device->Dirty = true;
+}
+
+int GDS_GetOverlayReserve( struct GDS_Device* Device ) { return OverlayReserve; }
 
 bool GDS_Reset( struct GDS_Device* Device ) {
 	if ( Device->RSTPin >= 0 ) {

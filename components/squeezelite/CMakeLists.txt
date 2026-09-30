@@ -10,6 +10,7 @@ idf_component_register( SRC_DIRS . external ac101 tas57xx wm8978
 									newlib 
 									esp_common 
 									esp-dsp
+									esp_http_server
 						  			platform_config 
 						 			services 
 									spotify

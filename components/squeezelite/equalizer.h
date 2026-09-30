@@ -17,3 +17,6 @@ void equalizer_set_gain(int8_t *gain);
 void equalizer_set_loudness(u8_t loudness);
 void equalizer_set_volume(unsigned left, unsigned right);
 void equalizer_process(uint8_t *buf, uint32_t bytes);
+void equalizer_get_gain(int8_t *gain);
+uint8_t equalizer_get_loudness(void);
+void equalizer_web_init(void);

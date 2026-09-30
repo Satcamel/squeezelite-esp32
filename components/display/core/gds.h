@@ -41,6 +41,11 @@ void 	GDS_SetContrast( struct GDS_Device* Device, uint8_t Contrast );
 void 	GDS_DisplayOn( struct GDS_Device* Device );
 void 	GDS_DisplayOff( struct GDS_Device* Device ); 
 void 	GDS_Update( struct GDS_Device* Device );
+
+// overlay is drawn right before each update, reserve is kept free at the right of line 1
+typedef void GDS_OverlayFunc( struct GDS_Device* Device );
+void 	GDS_SetOverlay( struct GDS_Device* Device, GDS_OverlayFunc *Overlay, int Reserve );
+int 	GDS_GetOverlayReserve( struct GDS_Device* Device );
 void 	GDS_SetLayout( struct GDS_Device* Device, struct GDS_Layout* Layout);
 void 	GDS_SetDirty( struct GDS_Device* Device );
 int 	GDS_GetWidth( struct GDS_Device* Device );

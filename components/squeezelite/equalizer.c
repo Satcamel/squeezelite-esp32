@@ -65,15 +65,17 @@ static const float loudness_envelope_coefficients[EQ_BANDS][POLYNOME_COUNT] = {
  * calculate loudness gains
  */
 static void calculate_loudness(void) {
-    char trace[EQ_BANDS * 5 + 1];
+    char trace[EQ_BANDS * 12 + 1];
     size_t n = 0;
 	for (int i = 0; i < EQ_BANDS; i++) {
+		// start from scratch, otherwise gains accumulate with every volume change
+		equalizer.loudness_gain[i] = 0;
 		for (int j = 0; j < POLYNOME_COUNT && equalizer.loudness != 0; j++) {
 			equalizer.loudness_gain[i] +=
 				loudness_envelope_coefficients[i][j] * pow(equalizer.volume, j);
 		}
 		equalizer.loudness_gain[i] *= equalizer.loudness / 2;
-        n += sprintf(trace + n, "%.2g%c", equalizer.loudness_gain[i], i < EQ_BANDS ? ',' : '\0');
+        n += snprintf(trace + n, sizeof(trace) - n, "%.2g%s", equalizer.loudness_gain[i], i < EQ_BANDS - 1 ? "," : "");
 	}
     LOG_INFO("loudness %s", trace);    
 }
@@ -95,9 +97,23 @@ void equalizer_init(void) {
 
     // handle loudness
     config = config_alloc_get(NVS_TYPE_STR, "loudness");
-    equalizer.loudness = atof(config) / 10.0;
+    equalizer.loudness = config ? atof(config) / 10.0 : 0;
 
 	free(config);
+
+	// web page to adjust gains & loudness
+	equalizer_web_init();
+}
+
+/****************************************************************************************
+ * get current settings (for web page)
+ */
+void equalizer_get_gain(int8_t *gain) {
+	memcpy(gain, equalizer.gain, EQ_BANDS);
+}
+
+uint8_t equalizer_get_loudness(void) {
+	return equalizer.loudness * 10 + 0.5;
 }
 
 /****************************************************************************************
@@ -136,10 +152,13 @@ void equalizer_set_volume(unsigned left, unsigned right) {
 	volume = volume / 16.0 * 100.0;
     
     // LMS has the bad habit to send multiple volume commands
-    if (volume != equalizer.volume && equalizer.loudness) {
+    // (always track volume so that loudness enabled later starts from the right level)
+    if (volume != equalizer.volume) {
         equalizer.volume = volume;
-        calculate_loudness();
-        equalizer.update = true;
+        if (equalizer.loudness) {
+            calculate_loudness();
+            equalizer.update = true;
+        }
     }
 #endif
 }

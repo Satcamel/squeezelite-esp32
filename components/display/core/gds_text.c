@@ -93,20 +93,23 @@ bool GDS_TextLine(struct GDS_Device* Device, int N, int Pos, int Attr, char *Tex
 
 	// counting 1..n
 	N--;
-	
-	GDS_SetFont( Device, Device->Lines[N].Font );	
+
+	// first line leaves room for the overlay (status icons)
+	int TextWidth = Device->TextWidth - (N == 0 ? GDS_GetOverlayReserve( Device ) : 0);
+
+	GDS_SetFont( Device, Device->Lines[N].Font );
 	if (Attr & GDS_TEXT_MONOSPACE) GDS_FontForceMonospace( Device, true );
-	
+
 	Width = GDS_FontMeasureString( Device, Text );
-	
+
 	// adjusting position, erase only EoL for rigth-justified
-	if (Pos == GDS_TEXT_RIGHT) X = Device->TextWidth - Width - 1;
-	else if (Pos == GDS_TEXT_CENTER) X = (Device->TextWidth - Width) / 2;
-	
+	if (Pos == GDS_TEXT_RIGHT) X = TextWidth - Width - 1;
+	else if (Pos == GDS_TEXT_CENTER) X = (TextWidth - Width) / 2;
+
 	// erase if requested
 	if (Attr & GDS_TEXT_CLEAR) {
 		int Y_min = max(0, Device->Lines[N].Y), Y_max = max(0, Device->Lines[N].Y + Device->Lines[N].Font->Height);
-		for (int c = (Attr & GDS_TEXT_CLEAR_EOL) ? X : 0; c < Device->TextWidth; c++) 
+		for (int c = (Attr & GDS_TEXT_CLEAR_EOL) ? X : 0; c < TextWidth; c++)
 			for (int y = Y_min; y < Y_max; y++)
 				Device->DrawPixelFast( Device, c, y, GDS_COLOR_BLACK );
 	}
@@ -119,11 +122,11 @@ bool GDS_TextLine(struct GDS_Device* Device, int N, int Pos, int Attr, char *Tex
 	Device->Dirty = true;
 	if (Attr & GDS_TEXT_UPDATE) GDS_Update( Device );
 		
-	return Width + X < Device->TextWidth;
+	return Width + X < TextWidth;
 }
 
 /****************************************************************************************
- * 
+ *
  */
 int GDS_GetTextWidth(struct GDS_Device* Device, int N, int Attr, char *Text) {
 	const struct GDS_FontDef *Font = GDS_SetFont( Device, Device->Lines[N-1].Font );	
