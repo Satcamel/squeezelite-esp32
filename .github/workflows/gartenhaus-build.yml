@@ -20,8 +20,17 @@ jobs:
 
       - name: Build
         shell: bash
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
         run: |
           set -euo pipefail
+          # without a real client id/secret, cspot can't get access tokens and crashes on connection
+          if [ -z "$SPOTIFY_CLIENT_ID" ] || [ -z "$SPOTIFY_CLIENT_SECRET" ]; then
+            echo "::error::Repository secrets SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set"
+            exit 1
+          fi
+          export SPOTIFY_SECRET="-DCLIENT_ID=\"$SPOTIFY_CLIENT_ID\" -DCLIENT_SECRET=\"$SPOTIFY_CLIENT_SECRET\""
           git config --global --add safe.directory '*'
           . /opt/esp/python_env/idf4.3_py3.8_env/bin/activate
           pip install --upgrade protobuf grpcio-tools
@@ -30,6 +39,12 @@ jobs:
           cp gartenhaus/sdkconfig.esp32 sdkconfig
           echo "I2S-4MFlash.gartenhaus.16bit.${GITHUB_SHA::8}" > version.txt
           idf.py build -DDEPTH=16 -DBUILD_NUMBER=500-16
+
+          # make sure the placeholder credentials did not end up in the binary
+          if grep -q -a "your spotify client" build/squeezelite.bin; then
+            echo "::error::Spotify client credentials were not compiled in"
+            exit 1
+          fi
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
