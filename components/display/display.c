@@ -42,6 +42,8 @@ static const char *TAG = "display";
 #define WIFI_ICON_HEIGHT		(WIFI_BARS * 2)
 #define WIFI_ICON_RESERVE		(WIFI_ICON_WIDTH + 2)
 #define WIFI_POLL_MS			3000
+#define WIFI_RSSI_SMOOTH		0.3f
+#define WIFI_RSSI_HYSTERESIS	3
 #define WIFI_STACK_SIZE			(3*1024)
 
 extern const uint8_t default_artwork[]   asm("_binary_note_jpg_start");
@@ -244,17 +246,31 @@ static void wifi_icon_overlay(struct GDS_Device *Device) {
 /****************************************************************************************
  * Poll wifi signal strength and refresh display when the number of bars changes
  */
+static int wifi_rssi_to_level(float rssi) {
+	// minimum rssi for 1..4 bars
+	static const int thresholds[WIFI_BARS] = { -85, -75, -65, -55 };
+	int level = 0;
+	while (level < WIFI_BARS && rssi >= thresholds[level]) level++;
+	return level;
+}
+
 static void wifi_icon_task(void *args) {
+	float rssi = 0;
+
 	while (1) {
 		wifi_ap_record_t ap;
 		int level = -1;
 
 		if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
-			if (ap.rssi >= -55) level = 4;
-			else if (ap.rssi >= -65) level = 3;
-			else if (ap.rssi >= -75) level = 2;
-			else if (ap.rssi >= -85) level = 1;
-			else level = 0;
+			// smooth readings, restart from the raw value after (re)connection
+			rssi = wifi_level < 0 ? ap.rssi : rssi * (1 - WIFI_RSSI_SMOOTH) + ap.rssi * WIFI_RSSI_SMOOTH;
+
+			// hysteresis: only move when clearly past a threshold, so it does not flicker at the edge
+			int up = wifi_rssi_to_level(rssi - WIFI_RSSI_HYSTERESIS), down = wifi_rssi_to_level(rssi + WIFI_RSSI_HYSTERESIS);
+			if (wifi_level < 0) level = wifi_rssi_to_level(rssi);
+			else if (up > wifi_level) level = up;
+			else if (down < wifi_level) level = down;
+			else level = wifi_level;
 		}
 
 		if (level != wifi_level) {
