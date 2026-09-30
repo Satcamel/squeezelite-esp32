@@ -36,10 +36,8 @@ static const char *TAG = "display";
 #define ARTWORK_BORDER			1
 
 #define WIFI_BARS				4
-#define WIFI_BAR_WIDTH			2
-#define WIFI_BAR_GAP			1
-#define WIFI_ICON_WIDTH			(WIFI_BARS * (WIFI_BAR_WIDTH + WIFI_BAR_GAP) - WIFI_BAR_GAP)
-#define WIFI_ICON_HEIGHT		(WIFI_BARS * 2)
+#define WIFI_ICON_WIDTH			(WIFI_BARS * (layout.icon.bar_width + layout.icon.gap) - layout.icon.gap)
+#define WIFI_ICON_HEIGHT		(WIFI_BARS * layout.icon.step)
 #define WIFI_ICON_RESERVE		(WIFI_ICON_WIDTH + 2)
 #define WIFI_POLL_MS			3000
 #define WIFI_RSSI_SMOOTH		0.3f
@@ -73,6 +71,17 @@ static EXT_RAM_ATTR struct {
 	}  artwork;
 	TickType_t tick;
 } displayer;
+
+// positions depending on the screen: small OLED (e.g. 128x64) or large color one (e.g. 320x240)
+static EXT_RAM_ATTR struct {
+	bool big;						// time & bar under the title, artwork below them
+	int time_top, time_bottom;		// area holding track time and progress bar
+	int time_y, bar_y, bar_height;
+	int artwork_y;					// artwork top when not drawn beside the text
+	struct {
+		int y, bar_width, gap, step;	// bar i is (i + 1) * step high
+	} icon;
+} layout;
 
 static const char *known_drivers[] = {"SH1106",
         "SH1122",
@@ -182,9 +191,37 @@ void display_init(char *welcome) {
 		displayer.speed = 33;
 		displayer.task = xTaskCreateStatic( (TaskFunction_t) displayer_task, "common_displayer", DISPLAYER_STACK_SIZE, NULL, ESP_TASK_PRIO_MIN + 1, xStack, &xTaskBuffer);
 		
-		// set lines for "fixed" text mode
-		GDS_TextSetFontAuto(display, 1, GDS_FONT_LINE_1, -3);
-		GDS_TextSetFontAuto(display, 2, GDS_FONT_LINE_2, -3);
+		// set lines for "fixed" text mode, large screens get more room between lines
+		layout.big = width >= 240 && height >= 160;
+
+		if (layout.big) {
+			GDS_TextSetFontAuto(display, 1, GDS_FONT_LINE_1, 3);
+			GDS_TextSetFontAuto(display, 2, GDS_FONT_LINE_2, 4);
+			// line 2 ends at 45, artwork gets the rest (~165 pixels high)
+			layout.time_top = 46;
+			layout.time_y = 48;
+			layout.bar_y = 64;
+			layout.bar_height = 7;
+			layout.time_bottom = layout.bar_y + layout.bar_height;
+			layout.artwork_y = layout.time_bottom + 4;
+			layout.icon.y = 3;
+			layout.icon.bar_width = 3;
+			layout.icon.gap = 2;
+			layout.icon.step = 3;
+		} else {
+			GDS_TextSetFontAuto(display, 1, GDS_FONT_LINE_1, -3);
+			GDS_TextSetFontAuto(display, 2, GDS_FONT_LINE_2, -3);
+			layout.time_top = height / 2;
+			layout.time_y = layout.time_top + 3;
+			layout.bar_y = height - 6;
+			layout.bar_height = 5;
+			layout.time_bottom = height - 1;
+			layout.artwork_y = 32;
+			layout.icon.y = 0;
+			layout.icon.bar_width = 2;
+			layout.icon.gap = 1;
+			layout.icon.step = 2;
+		}
 
 		// wifi signal icon in the top-right corner, kept up to date by its own task
 		// (internal stack as it calls the wifi driver)
@@ -223,23 +260,25 @@ static void display_sleep(void) {
  */
 static void wifi_icon_overlay(struct GDS_Device *Device) {
 	int x0 = GDS_GetWidth(Device) - WIFI_ICON_WIDTH;
+	int y0 = layout.icon.y, bottom = y0 + WIFI_ICON_HEIGHT - 1;
 	int level = wifi_level;
 
-	GDS_ClearWindow(Device, x0 - 1, 0, x0 + WIFI_ICON_WIDTH - 1, WIFI_ICON_HEIGHT - 1, GDS_COLOR_BLACK);
+	GDS_ClearWindow(Device, x0 - 1, y0, x0 + WIFI_ICON_WIDTH - 1, bottom, GDS_COLOR_BLACK);
 
 	for (int i = 0; i < WIFI_BARS; i++) {
-		int x = x0 + i * (WIFI_BAR_WIDTH + WIFI_BAR_GAP);
-		int h = (i + 1) * 2;
+		int x = x0 + i * (layout.icon.bar_width + layout.icon.gap);
+		int h = (i + 1) * layout.icon.step;
 
 		// active bars are filled, inactive ones are only a baseline dot
-		if (i < level) GDS_DrawBox(Device, x, WIFI_ICON_HEIGHT - h, x + WIFI_BAR_WIDTH - 1, WIFI_ICON_HEIGHT - 1, GDS_COLOR_WHITE, true);
-		else GDS_DrawHLine(Device, x, WIFI_ICON_HEIGHT - 1, WIFI_BAR_WIDTH, GDS_COLOR_WHITE);
+		if (i < level) GDS_DrawBox(Device, x, bottom - h + 1, x + layout.icon.bar_width - 1, bottom, GDS_COLOR_WHITE, true);
+		else GDS_DrawHLine(Device, x, bottom, layout.icon.bar_width, GDS_COLOR_WHITE);
 	}
 
 	// not connected: small cross on the left of the bars
 	if (level < 0) {
-		GDS_DrawLine(Device, x0, 0, x0 + 3, 3, GDS_COLOR_WHITE);
-		GDS_DrawLine(Device, x0, 3, x0 + 3, 0, GDS_COLOR_WHITE);
+		int size = WIFI_ICON_HEIGHT / 2;
+		GDS_DrawLine(Device, x0, y0, x0 + size - 1, y0 + size - 1, GDS_COLOR_WHITE);
+		GDS_DrawLine(Device, x0, y0 + size - 1, x0 + size - 1, y0, GDS_COLOR_WHITE);
 	}
 }
 
@@ -285,11 +324,11 @@ static void wifi_icon_task(void *args) {
 }
 
 /****************************************************************************************
- * Tall displays have room below the title (line 2) for the track time, unless
- * artwork is drawn there
+ * Tall displays have room below the title (line 2) for the track time, unless a
+ * small one draws artwork there (large ones fit both)
  */
 static bool time_below(void) {
-	return GDS_GetHeight(display) >= 64 && !(displayer.artwork.active && !displayer.artwork.offset);
+	return layout.big || (GDS_GetHeight(display) >= 64 && !(displayer.artwork.active && !displayer.artwork.offset));
 }
 
 static void format_time(char *buf, uint32_t seconds) {
@@ -298,28 +337,27 @@ static void format_time(char *buf, uint32_t seconds) {
 }
 
 /****************************************************************************************
- * Elapsed time on the left, duration on the right and a progress bar at the bottom
+ * Elapsed time on the left, duration on the right and a progress bar underneath
  */
 static void draw_time_below(uint32_t elapsed) {
-	int width = GDS_GetWidth(display), height = GDS_GetHeight(display);
-	int top = height / 2, bar = height - 6;
+	int width = GDS_GetWidth(display), bar = layout.bar_y;
 	uint32_t duration = displayer.duration.value;
 	char buf[12];
 
-	GDS_ClearWindow(display, 0, top, -1, -1, GDS_COLOR_BLACK);
+	GDS_ClearWindow(display, 0, layout.time_top, -1, layout.time_bottom, GDS_COLOR_BLACK);
 	GDS_SetFont(display, &Font_line_1);
 
 	format_time(buf, elapsed);
-	GDS_FontDrawString(display, 0, top + 3, buf, GDS_COLOR_WHITE);
+	GDS_FontDrawString(display, 0, layout.time_y, buf, GDS_COLOR_WHITE);
 
 	if (duration) {
 		format_time(buf, duration);
-		GDS_FontDrawString(display, width - GDS_FontMeasureString(display, buf) - 1, top + 3, buf, GDS_COLOR_WHITE);
+		GDS_FontDrawString(display, width - GDS_FontMeasureString(display, buf) - 1, layout.time_y, buf, GDS_COLOR_WHITE);
 
 		// outlined bar, filled 1 pixel inside
 		int fill = (width - 4) * min(elapsed, duration) / duration;
-		GDS_DrawBox(display, 0, bar, width - 1, bar + 4, GDS_COLOR_WHITE, false);
-		if (fill) GDS_DrawBox(display, 2, bar + 2, 1 + fill, bar + 2, GDS_COLOR_WHITE, true);
+		GDS_DrawBox(display, 0, bar, width - 1, bar + layout.bar_height - 1, GDS_COLOR_WHITE, false);
+		if (fill) GDS_DrawBox(display, 2, bar + 2, 1 + fill, bar + layout.bar_height - 3, GDS_COLOR_WHITE, true);
 	}
 
 	GDS_Update(display);
@@ -338,7 +376,7 @@ static void displayer_task(void *args) {
 		if (displayer.state < DISPLAYER_ACTIVE) {
 			if (displayer.state == DISPLAYER_IDLE) {
 				// stale track time would be misleading once idle
-				if (time_below()) GDS_ClearWindow(display, 0, GDS_GetHeight(display) / 2, -1, -1, GDS_COLOR_BLACK);
+				if (time_below()) GDS_ClearWindow(display, 0, layout.time_top, -1, layout.time_bottom, GDS_COLOR_BLACK);
 				GDS_TextLine(display, 2, 0, GDS_TEXT_CLEAR | GDS_TEXT_UPDATE, displayer.string);
 			}
 			vTaskSuspend(NULL);
@@ -432,7 +470,7 @@ void displayer_artwork(uint8_t *data) {
 	if (!displayer.artwork.active) return;
 	
 	int x = displayer.artwork.offset ? displayer.artwork.offset + ARTWORK_BORDER : 0;
-	int y = x ? 0 : 32;
+	int y = x ? 0 : layout.artwork_y;
 	GDS_ClearWindow(display, x, y, -1, -1, GDS_COLOR_BLACK);
 	if (data) {
 		displayer.artwork.updated = true;
