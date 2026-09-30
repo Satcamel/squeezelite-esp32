@@ -269,6 +269,47 @@ static void wifi_icon_task(void *args) {
 }
 
 /****************************************************************************************
+ * Tall displays have room below the title (line 2) for the track time, unless
+ * artwork is drawn there
+ */
+static bool time_below(void) {
+	return GDS_GetHeight(display) >= 64 && !(displayer.artwork.active && !displayer.artwork.offset);
+}
+
+static void format_time(char *buf, uint32_t seconds) {
+	if (seconds < 3600) sprintf(buf, "%u:%02u", seconds / 60, seconds % 60);
+	else sprintf(buf, "%u:%02u:%02u", (seconds / 3600) % 100, (seconds % 3600) / 60, seconds % 60);
+}
+
+/****************************************************************************************
+ * Elapsed time on the left, duration on the right and a progress bar at the bottom
+ */
+static void draw_time_below(uint32_t elapsed) {
+	int width = GDS_GetWidth(display), height = GDS_GetHeight(display);
+	int top = height / 2, bar = height - 6;
+	uint32_t duration = displayer.duration.value;
+	char buf[12];
+
+	GDS_ClearWindow(display, 0, top, -1, -1, GDS_COLOR_BLACK);
+	GDS_SetFont(display, &Font_line_1);
+
+	format_time(buf, elapsed);
+	GDS_FontDrawString(display, 0, top + 3, buf, GDS_COLOR_WHITE);
+
+	if (duration) {
+		format_time(buf, duration);
+		GDS_FontDrawString(display, width - GDS_FontMeasureString(display, buf) - 1, top + 3, buf, GDS_COLOR_WHITE);
+
+		// outlined bar, filled 1 pixel inside
+		int fill = (width - 4) * min(elapsed, duration) / duration;
+		GDS_DrawBox(display, 0, bar, width - 1, bar + 4, GDS_COLOR_WHITE, false);
+		if (fill) GDS_DrawBox(display, 2, bar + 2, 1 + fill, bar + 2, GDS_COLOR_WHITE, true);
+	}
+
+	GDS_Update(display);
+}
+
+/****************************************************************************************
  * This is not thread-safe as displayer_task might be in the middle of line drawing
  * but it won't crash (I think) and making it thread-safe would be complicated for a
  * feature which is secondary (the LMS version of scrolling is thread-safe)
@@ -279,7 +320,11 @@ static void displayer_task(void *args) {
 	while (1) {
 		// suspend ourselves if nothing to do
 		if (displayer.state < DISPLAYER_ACTIVE) {
-			if (displayer.state == DISPLAYER_IDLE) GDS_TextLine(display, 2, 0, GDS_TEXT_CLEAR | GDS_TEXT_UPDATE, displayer.string);
+			if (displayer.state == DISPLAYER_IDLE) {
+				// stale track time would be misleading once idle
+				if (time_below()) GDS_ClearWindow(display, 0, GDS_GetHeight(display) / 2, -1, -1, GDS_COLOR_BLACK);
+				GDS_TextLine(display, 2, 0, GDS_TEXT_CLEAR | GDS_TEXT_UPDATE, displayer.string);
+			}
 			vTaskSuspend(NULL);
 			scroll_sleep = 0;
 			GDS_ClearExt(display, true);
@@ -324,23 +369,28 @@ static void displayer_task(void *args) {
 				elapsed = displayer.elapsed += elapsed / 1000;
 				xSemaphoreGive(displayer.mutex);
 
-				// when we have duration but no space, display remaining time
-				if (displayer.duration.value && !displayer.duration.visible) elapsed = displayer.duration.value - elapsed;
+				// room below the title: elapsed, duration and progress bar there, line 1 untouched
+				if (time_below()) {
+					draw_time_below(elapsed);
+				} else {
+					// when we have duration but no space, display remaining time
+					if (displayer.duration.value && !displayer.duration.visible) elapsed = displayer.duration.value - elapsed;
 
-				if (elapsed < 3600) sprintf(_line, "%u:%02u", elapsed / 60, elapsed % 60);
-				else sprintf(_line, "%u:%02u:%02u", (elapsed / 3600) % 100, (elapsed % 3600) / 60, elapsed % 60);
+					if (elapsed < 3600) sprintf(_line, "%u:%02u", elapsed / 60, elapsed % 60);
+					else sprintf(_line, "%u:%02u:%02u", (elapsed / 3600) % 100, (elapsed % 3600) / 60, elapsed % 60);
 
-				// concatenate if we have room for elapsed / duration
-				if (displayer.duration.visible) {
-					strcat(_line, "/");
-					strcat(_line, displayer.duration.string);
-				} else if (displayer.duration.value) {
-					_line--;
+					// concatenate if we have room for elapsed / duration
+					if (displayer.duration.visible) {
+						strcat(_line, "/");
+						strcat(_line, displayer.duration.string);
+					} else if (displayer.duration.value) {
+						_line--;
+					}
+
+					// just re-write the whole line it's easier
+					GDS_TextLine(display, 1, GDS_TEXT_LEFT, GDS_TEXT_CLEAR, displayer.header);
+					GDS_TextLine(display, 1, GDS_TEXT_RIGHT, GDS_TEXT_UPDATE, _line);
 				}
-
-				// just re-write the whole line it's easier
-				GDS_TextLine(display, 1, GDS_TEXT_LEFT, GDS_TEXT_CLEAR, displayer.header);	
-				GDS_TextLine(display, 1, GDS_TEXT_RIGHT, GDS_TEXT_UPDATE, _line);
 				
 				// if we have not received artwork after 5s, display a default icon
 				if (displayer.artwork.active && !displayer.artwork.updated && tick - displayer.artwork.tick > pdMS_TO_TICKS(5000)) {
