@@ -572,7 +572,9 @@ void displayer_metadata(char *artist, char *album, char *title) {
 	PARSE_PARAM(displayer.metadata_config, "speed", '=', displayer.speed);
 	PARSE_PARAM(displayer.metadata_config, "pause", '=', displayer.pause);
 	
-	displayer.offset = 0;	
+	displayer.offset = 0;
+	// give this track's artwork time to arrive before falling back to the default icon
+	displayer.artwork.tick = xTaskGetTickCount();
 	utf8_decode(displayer.string);
 	ESP_LOGI(TAG, "playing %s", displayer.string);
 	displayer.boundary = GDS_TextStretch(display, 2, displayer.string, SCROLLABLE_SIZE);
@@ -657,6 +659,7 @@ void displayer_control(enum displayer_cmd_e cmd, ...) {
 		displayer.elapsed = displayer.duration.value = 0;
 		displayer.duration.visible = false;
 		displayer.offset = displayer.boundary = 0;
+		displayer.artwork.tick = xTaskGetTickCount();
 		display_bus(&displayer, DISPLAY_BUS_TAKE);
 		if (displayer.artwork.active) GDS_SetTextWidth(display, displayer.artwork.offset);
 		vTaskResume(displayer.task);
