@@ -42,3 +42,6 @@ void displayer_artwork(uint8_t *data);
 void displayer_timer(enum displayer_time_e mode, int elapsed, int duration);
 bool displayer_can_artwork(void);
 char * display_get_supported_drivers(void);
+
+// status icon next to the wifi one: -1 no bluetooth sink, 0 waiting for a device, 1 connected
+void display_set_bt_status(int status);

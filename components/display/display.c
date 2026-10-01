@@ -38,7 +38,9 @@ static const char *TAG = "display";
 #define WIFI_BARS				4
 #define WIFI_ICON_WIDTH			(WIFI_BARS * (layout.icon.bar_width + layout.icon.gap) - layout.icon.gap)
 #define WIFI_ICON_HEIGHT		(WIFI_BARS * layout.icon.step)
-#define WIFI_ICON_RESERVE		(WIFI_ICON_WIDTH + 2)
+#define BT_ICON_WIDTH			(WIFI_ICON_HEIGHT / 2 + 1)
+#define ICON_GAP				4
+#define WIFI_ICON_RESERVE		(WIFI_ICON_WIDTH + ICON_GAP + BT_ICON_WIDTH + 2)
 #define WIFI_POLL_MS			3000
 #define WIFI_RSSI_SMOOTH		0.3f
 #define WIFI_RSSI_HYSTERESIS	3
@@ -79,6 +81,7 @@ static EXT_RAM_ATTR struct {
 	int time_top, time_bottom;		// area holding track time and progress bar
 	int time_y, bar_y, bar_height;
 	int artwork_y, artwork_bottom;	// artwork area when not drawn beside the text
+	const struct GDS_FontDef *font_small;	// for track time
 	struct {
 		int y, bar_width, gap, step;	// bar i is (i + 1) * step high
 	} icon;
@@ -105,6 +108,8 @@ static void wifi_icon_overlay(struct GDS_Device *Device);
 
 // -1 means not connected, otherwise number of bars 0..WIFI_BARS
 static int wifi_level = -1;
+// see display_set_bt_status()
+static int bt_status = -1;
 
 struct GDS_Device *display;   
 extern GDS_DetectFunc SSD1306_Detect, SSD132x_Detect, SH1106_Detect, SH1122_Detect, SSD1675_Detect, SSD1322_Detect, SSD1351_Detect, ST77xx_Detect, ILI9341_Detect;
@@ -204,8 +209,9 @@ void display_init(char *welcome) {
 		layout.big = width >= 240 && height >= 160;
 
 		if (layout.big) {
-			GDS_TextSetFontAuto(display, 1, GDS_FONT_LINE_1, 3);
-			GDS_TextSetFontAuto(display, 2, GDS_FONT_LINE_2, 4);
+			GDS_TextSetFont(display, 1, &Font_ubuntu_14, 3);
+			GDS_TextSetFont(display, 2, &Font_ubuntu_24, 4);
+			layout.font_small = &Font_ubuntu_14;
 			// line 2 ends at 45, then artwork (~170 pixels high) and the time/bar row at the bottom
 			layout.time_top = height - 20;
 			layout.time_y = height - 17;
@@ -221,6 +227,7 @@ void display_init(char *welcome) {
 		} else {
 			GDS_TextSetFontAuto(display, 1, GDS_FONT_LINE_1, -3);
 			GDS_TextSetFontAuto(display, 2, GDS_FONT_LINE_2, -3);
+			layout.font_small = &Font_line_1;
 			layout.time_top = height / 2;
 			layout.time_y = layout.time_top + 3;
 			layout.bar_y = height - 6;
@@ -266,15 +273,49 @@ static void display_sleep(void) {
 }
 
 /****************************************************************************************
- * Draw wifi bars in the top-right corner. Called by GDS right before each update, so
- * whoever owns the display, the icon stays on top.
+ * Color from RGB for whatever the screen supports (white on monochrome ones)
+ */
+static int make_color(struct GDS_Device *Device, uint8_t r, uint8_t g, uint8_t b) {
+	switch (GDS_GetMode(Device)) {
+	case GDS_RGB565: return ((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3);
+	case GDS_RGB888: return (r << 16) | (g << 8) | b;
+	case GDS_RGB666: return ((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2);
+	case GDS_RGB555: return ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+	case GDS_RGB444: return ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+	case GDS_RGB332: return (r & 0xe0) | ((g & 0xe0) >> 3) | (b >> 6);
+	case GDS_GRAYSCALE: return ((r * 30 + g * 59 + b * 11) / 100) >> (8 - GDS_GetDepth(Device));
+	default: return GDS_COLOR_WHITE;
+	}
+}
+
+/****************************************************************************************
+ * Bluetooth rune in a box of BT_ICON_WIDTH x WIFI_ICON_HEIGHT at x0,y0
+ */
+static void bt_icon_draw(struct GDS_Device *Device, int x0, int y0, int Color) {
+	int h = WIFI_ICON_HEIGHT, cx = x0 + BT_ICON_WIDTH / 2, half = BT_ICON_WIDTH / 2;
+	int top = y0, bottom = y0 + h - 1, q1 = y0 + h / 4, q3 = y0 + (3 * h) / 4 - 1;
+
+	GDS_DrawLine(Device, cx, top, cx, bottom, Color);
+	GDS_DrawLine(Device, cx, top, cx + half, q1, Color);
+	GDS_DrawLine(Device, cx + half, q1, cx - half, q3, Color);
+	GDS_DrawLine(Device, cx, bottom, cx + half, q3, Color);
+	GDS_DrawLine(Device, cx + half, q3, cx - half, q1, Color);
+}
+
+/****************************************************************************************
+ * Draw wifi bars in the top-right corner, bluetooth on their left. Called by GDS right
+ * before each update, so whoever owns the display, the icons stay on top.
  */
 static void wifi_icon_overlay(struct GDS_Device *Device) {
 	int x0 = GDS_GetWidth(Device) - WIFI_ICON_WIDTH;
 	int y0 = layout.icon.y, bottom = y0 + WIFI_ICON_HEIGHT - 1;
-	int level = wifi_level;
+	int level = wifi_level, bt_x = x0 - ICON_GAP - BT_ICON_WIDTH;
 
-	GDS_ClearWindow(Device, x0 - 1, y0, x0 + WIFI_ICON_WIDTH - 1, bottom, GDS_COLOR_BLACK);
+	GDS_ClearWindow(Device, bt_x - 1, y0, x0 + WIFI_ICON_WIDTH - 1, bottom, GDS_COLOR_BLACK);
+
+	// bluetooth: blue when a device is connected, grey while waiting (monochrome: only when connected)
+	if (bt_status == 1) bt_icon_draw(Device, bt_x, y0, make_color(Device, 0x30, 0x8c, 0xff));
+	else if (bt_status == 0 && GDS_GetMode(Device) != GDS_MONO) bt_icon_draw(Device, bt_x, y0, make_color(Device, 0x70, 0x70, 0x70));
 
 	for (int i = 0; i < WIFI_BARS; i++) {
 		int x = x0 + i * (layout.icon.bar_width + layout.icon.gap);
@@ -291,6 +332,17 @@ static void wifi_icon_overlay(struct GDS_Device *Device) {
 		GDS_DrawLine(Device, x0, y0, x0 + size - 1, y0 + size - 1, GDS_COLOR_WHITE);
 		GDS_DrawLine(Device, x0, y0 + size - 1, x0 + size - 1, y0, GDS_COLOR_WHITE);
 	}
+}
+
+/****************************************************************************************
+ * Called by the bluetooth sink on (dis)connection
+ */
+void display_set_bt_status(int status) {
+	if (status == bt_status) return;
+	bt_status = status;
+	if (!display) return;
+	GDS_SetDirty(display);
+	GDS_Update(display);
 }
 
 /****************************************************************************************
@@ -358,7 +410,7 @@ static void draw_time_below(uint32_t elapsed) {
 	int x0 = 0, x1 = width - 1;
 
 	GDS_ClearWindow(display, 0, layout.time_top, -1, layout.time_bottom, GDS_COLOR_BLACK);
-	GDS_SetFont(display, &Font_line_1);
+	GDS_SetFont(display, layout.font_small);
 
 	format_time(buf, elapsed);
 	GDS_FontDrawString(display, 0, layout.time_y, buf, GDS_COLOR_WHITE);

@@ -283,11 +283,13 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
         if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
             esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
 			(*bt_app_a2d_cmd_cb)(BT_SINK_DISCONNECTED);
+			display_set_bt_status(0);
         } else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED){
 			abs_volume = -1;
 			s_volume = sink_volume;
             esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
 			(*bt_app_a2d_cmd_cb)(BT_SINK_CONNECTED);
+			display_set_bt_status(1);
         }
         break;
     }
@@ -607,11 +609,15 @@ void bt_sink_init(bt_cmd_vcb_t cmd_cb, bt_data_cb_t data_cb)
 	esp_bt_gap_set_pin(pin_type, strlen(pin_code), esp_pin_code);
 	
 	free(pin_code);
+	
+	// waiting for a device: grey icon on screen
+	display_set_bt_status(0);
 }
 
 void bt_sink_deinit(void)
 {
 	bt_app_task_shut_down();
+	display_set_bt_status(-1);
 }
 
 static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)

@@ -83,6 +83,8 @@ extern const struct GDS_FontDef Font_Tarable7Seg_16x32;
 extern const struct GDS_FontDef Font_Tarable7Seg_32x64;
 
 extern const struct GDS_FontDef Font_line_1;
+extern const struct GDS_FontDef Font_ubuntu_14;
+extern const struct GDS_FontDef Font_ubuntu_24;
 extern const struct GDS_FontDef Font_line_2;
 
 #ifdef __cplusplus
