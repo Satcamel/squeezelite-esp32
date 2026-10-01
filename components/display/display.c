@@ -39,7 +39,7 @@ static const char *TAG = "display";
 #define WIFI_ICON_WIDTH			(WIFI_BARS * (layout.icon.bar_width + layout.icon.gap) - layout.icon.gap)
 #define WIFI_ICON_HEIGHT		(WIFI_BARS * layout.icon.step)
 #define BT_ICON_WIDTH			(WIFI_ICON_HEIGHT / 2 + 1)
-#define ICON_GAP				4
+#define ICON_GAP				(layout.icon.step * 3 + 1)	// 7 px on small screens, 10 px on large ones
 #define WIFI_ICON_RESERVE		(WIFI_ICON_WIDTH + ICON_GAP + BT_ICON_WIDTH + 2)
 #define WIFI_POLL_MS			3000
 #define WIFI_RSSI_SMOOTH		0.3f
