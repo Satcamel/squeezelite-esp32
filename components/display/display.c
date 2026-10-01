@@ -74,10 +74,10 @@ static EXT_RAM_ATTR struct {
 
 // positions depending on the screen: small OLED (e.g. 128x64) or large color one (e.g. 320x240)
 static EXT_RAM_ATTR struct {
-	bool big;						// time & bar under the title, artwork below them
+	bool big;						// artwork under the title, time & bar on one row at the bottom
 	int time_top, time_bottom;		// area holding track time and progress bar
 	int time_y, bar_y, bar_height;
-	int artwork_y;					// artwork top when not drawn beside the text
+	int artwork_y, artwork_bottom;	// artwork area when not drawn beside the text
 	struct {
 		int y, bar_width, gap, step;	// bar i is (i + 1) * step high
 	} icon;
@@ -197,13 +197,14 @@ void display_init(char *welcome) {
 		if (layout.big) {
 			GDS_TextSetFontAuto(display, 1, GDS_FONT_LINE_1, 3);
 			GDS_TextSetFontAuto(display, 2, GDS_FONT_LINE_2, 4);
-			// line 2 ends at 45, artwork gets the rest (~165 pixels high)
-			layout.time_top = 46;
-			layout.time_y = 48;
-			layout.bar_y = 64;
+			// line 2 ends at 45, then artwork (~170 pixels high) and the time/bar row at the bottom
+			layout.time_top = height - 20;
+			layout.time_y = height - 17;
+			layout.bar_y = layout.time_y + 3;
 			layout.bar_height = 7;
-			layout.time_bottom = layout.bar_y + layout.bar_height;
-			layout.artwork_y = layout.time_bottom + 4;
+			layout.time_bottom = height - 1;
+			layout.artwork_y = 48;
+			layout.artwork_bottom = layout.time_top - 3;
 			layout.icon.y = 3;
 			layout.icon.bar_width = 3;
 			layout.icon.gap = 2;
@@ -217,6 +218,7 @@ void display_init(char *welcome) {
 			layout.bar_height = 5;
 			layout.time_bottom = height - 1;
 			layout.artwork_y = 32;
+			layout.artwork_bottom = height - 1;
 			layout.icon.y = 0;
 			layout.icon.bar_width = 2;
 			layout.icon.gap = 1;
@@ -344,20 +346,26 @@ static void draw_time_below(uint32_t elapsed) {
 	uint32_t duration = displayer.duration.value;
 	char buf[12];
 
+	int x0 = 0, x1 = width - 1;
+
 	GDS_ClearWindow(display, 0, layout.time_top, -1, layout.time_bottom, GDS_COLOR_BLACK);
 	GDS_SetFont(display, &Font_line_1);
 
 	format_time(buf, elapsed);
 	GDS_FontDrawString(display, 0, layout.time_y, buf, GDS_COLOR_WHITE);
+	// on large screens the bar sits between both times (fixed start so it does not move)
+	if (layout.big) x0 = max(GDS_FontMeasureString(display, buf), GDS_FontMeasureString(display, "00:00")) + 6;
 
 	if (duration) {
 		format_time(buf, duration);
-		GDS_FontDrawString(display, width - GDS_FontMeasureString(display, buf) - 1, layout.time_y, buf, GDS_COLOR_WHITE);
+		int w = GDS_FontMeasureString(display, buf);
+		GDS_FontDrawString(display, width - w - 1, layout.time_y, buf, GDS_COLOR_WHITE);
+		if (layout.big) x1 = width - w - 8;
 
 		// outlined bar, filled 1 pixel inside
-		int fill = (width - 4) * min(elapsed, duration) / duration;
-		GDS_DrawBox(display, 0, bar, width - 1, bar + layout.bar_height - 1, GDS_COLOR_WHITE, false);
-		if (fill) GDS_DrawBox(display, 2, bar + 2, 1 + fill, bar + layout.bar_height - 3, GDS_COLOR_WHITE, true);
+		int fill = (x1 - x0 - 3) * min(elapsed, duration) / duration;
+		GDS_DrawBox(display, x0, bar, x1, bar + layout.bar_height - 1, GDS_COLOR_WHITE, false);
+		if (fill) GDS_DrawBox(display, x0 + 2, bar + 2, x0 + 1 + fill, bar + layout.bar_height - 3, GDS_COLOR_WHITE, true);
 	}
 
 	GDS_Update(display);
@@ -471,10 +479,11 @@ void displayer_artwork(uint8_t *data) {
 	
 	int x = displayer.artwork.offset ? displayer.artwork.offset + ARTWORK_BORDER : 0;
 	int y = x ? 0 : layout.artwork_y;
-	GDS_ClearWindow(display, x, y, -1, -1, GDS_COLOR_BLACK);
+	int bottom = x ? GDS_GetHeight(display) - 1 : layout.artwork_bottom;
+	GDS_ClearWindow(display, x, y, -1, bottom, GDS_COLOR_BLACK);
 	if (data) {
 		displayer.artwork.updated = true;
-		GDS_DrawJPEG(display, data, x, y, GDS_IMAGE_CENTER | (displayer.artwork.fit ? GDS_IMAGE_FIT : 0));
+		GDS_DrawJPEGArea(display, data, x, y, GDS_GetWidth(display) - x, bottom - y + 1, GDS_IMAGE_CENTER | (displayer.artwork.fit ? GDS_IMAGE_FIT : 0));
 	} else {
 		displayer.artwork.updated = false;
 		displayer.artwork.tick = xTaskGetTickCount();

@@ -29,4 +29,5 @@ struct GDS_Device;
 void*	 	GDS_DecodeJPEG(uint8_t *Source, int *Width, int *Height, float Scale, int RGB_Mode);	// can be 8, 16 or 24 bits per pixel in return
 void	 	GDS_GetJPEGSize(uint8_t *Source, int *Width, int *Height);
 bool 		GDS_DrawJPEG( struct GDS_Device* Device, uint8_t *Source, int x, int y, int Fit);	
+bool 		GDS_DrawJPEGArea( struct GDS_Device* Device, uint8_t *Source, int x, int y, int Width, int Height, int Fit);
 void 		GDS_DrawRGB( struct GDS_Device* Device, uint8_t *Image, int x, int y, int Width, int Height, int RGB_Mode );

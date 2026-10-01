@@ -373,6 +373,13 @@ void GDS_DrawRGB( struct GDS_Device* Device, uint8_t *Image, int x, int y, int W
  *  Decode the embedded image into pixel lines that can be used with the rest of the logic.
  */
 bool GDS_DrawJPEG(struct GDS_Device* Device, uint8_t *Source, int x, int y, int Fit) {
+	return GDS_DrawJPEGArea(Device, Source, x, y, Device->Width - x, Device->Height - y, Fit);
+}
+
+/****************************************************************************************
+ *  Same, but fit and place the image within a Width x Height area starting at x,y
+ */
+bool GDS_DrawJPEGArea(struct GDS_Device* Device, uint8_t *Source, int x, int y, int Width, int Height, int Fit) {
     JDEC Decoder;
     JpegCtx Context;
 	bool Ret = false;
@@ -401,7 +408,7 @@ bool GDS_DrawJPEG(struct GDS_Device* Device, uint8_t *Source, int x, int y, int 
 		
 		// do we need to fit the image
 		if (Fit & GDS_IMAGE_FIT) {
-			float XRatio = (Device->Width - x) / (float) Decoder.width, YRatio = (Device->Height - y) / (float) Decoder.height;
+			float XRatio = Width / (float) Decoder.width, YRatio = Height / (float) Decoder.height;
 			uint8_t Ratio = XRatio < YRatio ? ceil(1/XRatio) : ceil(1/YRatio);
 			Ratio--; Ratio |= Ratio >> 1; Ratio |= Ratio >> 2; Ratio++;
 			while (Ratio >>= 1) N++;
@@ -414,10 +421,10 @@ bool GDS_DrawJPEG(struct GDS_Device* Device, uint8_t *Source, int x, int y, int 
 		} 
 		
 		// then place it
-		if (Fit & GDS_IMAGE_CENTER_X) Context.XOfs = (Device->Width + x - Context.Width) / 2;
-		else if (Fit & GDS_IMAGE_RIGHT) Context.XOfs = Device->Width - Context.Width;
-		if (Fit & GDS_IMAGE_CENTER_Y) Context.YOfs = (Device->Height + y - Context.Height) / 2;
-		else if (Fit & GDS_IMAGE_BOTTOM) Context.YOfs = Device->Height - Context.Height;
+		if (Fit & GDS_IMAGE_CENTER_X) Context.XOfs = x + (Width - Context.Width) / 2;
+		else if (Fit & GDS_IMAGE_RIGHT) Context.XOfs = x + Width - Context.Width;
+		if (Fit & GDS_IMAGE_CENTER_Y) Context.YOfs = y + (Height - Context.Height) / 2;
+		else if (Fit & GDS_IMAGE_BOTTOM) Context.YOfs = y + Height - Context.Height;
 
 		Context.XMin = x - Context.XOfs;
 		Context.YMin = y - Context.YOfs;
