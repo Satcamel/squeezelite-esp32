@@ -253,6 +253,8 @@ void http_download(char *url, size_t max, http_download_cb_t callback, void *con
 		.url = url,
 		.event_handler = http_event_handler,
 		.user_data = http_context,
+		// default 512 bytes makes image downloads crawl
+		.buffer_size = 4096,
 	};
 
 	http_context->callback = callback;

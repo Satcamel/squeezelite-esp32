@@ -5,7 +5,7 @@ idf_component_register(SRC_DIRS . core core/ifaces  fonts
 						INCLUDE_DIRS . fonts core
 						REQUIRES platform_config tools esp_common
 						PRIV_REQUIRES services freertos driver esp_wifi ${TJPGD}
-						EMBED_FILES note.jpg )		
+						EMBED_FILES note.jpg bootlogo.jpg )		
 
 if (NOT TJPGD)
 add_compile_definitions(TJPGD_ROM)												

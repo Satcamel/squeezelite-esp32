@@ -45,6 +45,7 @@ static const char *TAG = "display";
 #define WIFI_STACK_SIZE			(3*1024)
 
 extern const uint8_t default_artwork[]   asm("_binary_note_jpg_start");
+extern const uint8_t boot_logo[]         asm("_binary_bootlogo_jpg_start");
 
 static EXT_RAM_ATTR struct {
 	TaskHandle_t task;
@@ -182,7 +183,15 @@ void display_init(char *welcome) {
 
 		GDS_SetLayout(display, &Layout);
 		GDS_SetFont(display, &Font_line_2);
-		GDS_TextPos(display, GDS_FONT_DEFAULT, GDS_TEXT_CENTERED, GDS_TEXT_CLEAR | GDS_TEXT_UPDATE, welcome);
+
+		// large (color) screens show a logo, others the welcome text
+		if (width >= 240 && height >= 160) {
+			GDS_ClearExt(display, true);
+			GDS_DrawJPEG(display, (uint8_t*) boot_logo, 0, 0, GDS_IMAGE_CENTER | GDS_IMAGE_FIT);
+			GDS_Update(display);
+		} else {
+			GDS_TextPos(display, GDS_FONT_DEFAULT, GDS_TEXT_CENTERED, GDS_TEXT_CLEAR | GDS_TEXT_UPDATE, welcome);
+		}
 
 		// start the task that will handle scrolling & counting
 		displayer.mutex = xSemaphoreCreateMutex();

@@ -161,9 +161,14 @@ static bool cmd_handler(cspot_event_t event, ...) {
 		uint32_t duration = va_arg(args, int), offset = va_arg(args, int);
 		char *artist = va_arg(args, char*), *album = va_arg(args, char*), *title = va_arg(args, char*), *artwork = va_arg(args, char*);
 		if (artwork && displayer_can_artwork()) {
-			ESP_LOGI(TAG, "requesting artwork %s", artwork);
-			http_download(artwork, 128*1024, got_artwork, NULL);
-		}	
+			// covers are public and also served over plain http: skipping the TLS handshake
+			// gets them on screen seconds earlier (esp_http_client copies the url)
+			char url[256];
+			if (!strncmp(artwork, "https://i.scdn.co/", 18)) snprintf(url, sizeof(url), "http://%s", artwork + 8);
+			else strlcpy(url, artwork, sizeof(url));
+			ESP_LOGI(TAG, "requesting artwork %s", url);
+			http_download(url, 128*1024, got_artwork, NULL);
+		}
 		displayer_metadata(artist, album, title);
 		displayer_timer(DISPLAYER_ELAPSED, offset, duration);
 		break;
