@@ -29,6 +29,7 @@
 #include "audio_controls.h"
 #include "sys/lock.h"
 #include "display.h"
+#include "bt_artwork.h"
 
 // AVRCP used transaction label
 #define APP_RC_CT_TL_GET_CAPS            (0)
@@ -172,9 +173,11 @@ static bool cmd_handler(bt_sink_cmd_t cmd, ...) {
 	// now handle events for display
 	switch(cmd) {
 	case BT_SINK_AUDIO_STARTED:
-		displayer_control(DISPLAYER_ACTIVATE, "BLUETOOTH", false);
+		bt_artwork_reset();
+		displayer_control(DISPLAYER_ACTIVATE, "BLUETOOTH", true);
 		break;
 	case BT_SINK_AUDIO_STOPPED:
+		bt_artwork_reset();
 		displayer_control(DISPLAYER_SUSPEND);
 		break;		
 	case BT_SINK_PLAY:
@@ -187,6 +190,7 @@ static bool cmd_handler(bt_sink_cmd_t cmd, ...) {
 		break;		
 	case BT_SINK_METADATA: {
 		char *artist = va_arg(args, char*), *album = va_arg(args, char*), *title = va_arg(args, char*);
+		bt_artwork_lookup(artist, album, title);
 		displayer_metadata(artist, album, title);
 		break;
 	}	

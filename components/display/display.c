@@ -291,15 +291,18 @@ static int make_color(struct GDS_Device *Device, uint8_t r, uint8_t g, uint8_t b
 /****************************************************************************************
  * Bluetooth rune in a box of BT_ICON_WIDTH x WIFI_ICON_HEIGHT at x0,y0
  */
-static void bt_icon_draw(struct GDS_Device *Device, int x0, int y0, int Color) {
+static void bt_icon_draw(struct GDS_Device *Device, int x0, int y0, int Color, bool bold) {
 	int h = WIFI_ICON_HEIGHT, cx = x0 + BT_ICON_WIDTH / 2, half = BT_ICON_WIDTH / 2;
 	int top = y0, bottom = y0 + h - 1, q1 = y0 + h / 4, q3 = y0 + (3 * h) / 4 - 1;
 
-	GDS_DrawLine(Device, cx, top, cx, bottom, Color);
-	GDS_DrawLine(Device, cx, top, cx + half, q1, Color);
-	GDS_DrawLine(Device, cx + half, q1, cx - half, q3, Color);
-	GDS_DrawLine(Device, cx, bottom, cx + half, q3, Color);
-	GDS_DrawLine(Device, cx + half, q3, cx - half, q1, Color);
+	// bold: same rune drawn twice, one pixel apart
+	for (int dx = 0; dx <= (bold ? 1 : 0); dx++) {
+		GDS_DrawLine(Device, cx + dx, top, cx + dx, bottom, Color);
+		GDS_DrawLine(Device, cx + dx, top, cx + half + dx, q1, Color);
+		GDS_DrawLine(Device, cx + half + dx, q1, cx - half + dx, q3, Color);
+		GDS_DrawLine(Device, cx + dx, bottom, cx + half + dx, q3, Color);
+		GDS_DrawLine(Device, cx + half + dx, q3, cx - half + dx, q1, Color);
+	}
 }
 
 /****************************************************************************************
@@ -313,9 +316,10 @@ static void wifi_icon_overlay(struct GDS_Device *Device) {
 
 	GDS_ClearWindow(Device, bt_x - 1, y0, x0 + WIFI_ICON_WIDTH - 1, bottom, GDS_COLOR_BLACK);
 
-	// bluetooth: blue when a device is connected, grey while waiting (monochrome: only when connected)
-	if (bt_status == 1) bt_icon_draw(Device, bt_x, y0, make_color(Device, 0x30, 0x8c, 0xff));
-	else if (bt_status == 0 && GDS_GetMode(Device) != GDS_MONO) bt_icon_draw(Device, bt_x, y0, make_color(Device, 0x70, 0x70, 0x70));
+	// bluetooth: bright blue and bold when a device is connected, thin grey while waiting
+	// (monochrome: only when connected)
+	if (bt_status == 1) bt_icon_draw(Device, bt_x, y0, make_color(Device, 0x28, 0xa0, 0xff), true);
+	else if (bt_status == 0 && GDS_GetMode(Device) != GDS_MONO) bt_icon_draw(Device, bt_x, y0, make_color(Device, 0x70, 0x70, 0x70), false);
 
 	for (int i = 0; i < WIFI_BARS; i++) {
 		int x = x0 + i * (layout.icon.bar_width + layout.icon.gap);

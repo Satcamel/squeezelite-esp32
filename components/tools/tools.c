@@ -237,7 +237,7 @@ void vTaskDeleteEXTRAM(TaskHandle_t xTask) {
 typedef struct {
 	void *user_context;
 	http_download_cb_t callback;
-	size_t max, bytes;
+	size_t max, bytes, size;
 	bool abort;
 	uint8_t *data;
 	esp_http_client_handle_t client;
@@ -295,16 +295,33 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
 		}
 		break;
 	case HTTP_EVENT_ON_DATA: {
-		size_t len = esp_http_client_get_content_length(evt->client);
-		if (!http_context->data) {
-			if ((http_context->data = (uint8_t*) malloc(len)) == NULL) {
+		size_t needed = http_context->bytes + evt->data_len;
+		if (needed > http_context->max) {
+			ESP_LOGI(TAG, "download too large %zu / %zu", needed, http_context->max);
+			if (http_context->data) free(http_context->data);
+			http_context->data = NULL;
+			http_context->abort = true;
+			return ESP_FAIL;
+		}
+		// content length is -1 on chunked replies (e.g. JSON APIs), grow the buffer then
+		if (!http_context->data || needed + 1 > http_context->size) {
+			int len = esp_http_client_get_content_length(evt->client);
+			size_t size = len > 0 && (size_t) len >= needed ? len + 1 : needed + 4096;
+			uint8_t *data = (uint8_t*) realloc(http_context->data, size);
+			if (!data) {
+				ESP_LOGE(TAG, "failed to allocate memory for output buffer %zu", size);
+				if (http_context->data) free(http_context->data);
+				http_context->data = NULL;
 				http_context->abort = true;
-				ESP_LOGE(TAG, "failed to allocate memory for output buffer %zu", len);
 				return ESP_FAIL;
 			}
+			http_context->data = data;
+			http_context->size = size;
 		}
 		memcpy(http_context->data + http_context->bytes, evt->data, evt->data_len);
 		http_context->bytes += evt->data_len;
+		// always zero-terminated so text replies can be parsed in place
+		http_context->data[http_context->bytes] = '\0';
 		break;
 	}
 	case HTTP_EVENT_ON_FINISH:
