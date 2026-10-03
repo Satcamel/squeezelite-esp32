@@ -1,7 +1,9 @@
 #pragma once
 
 #include <stdint.h>
+#include <functional>
 #include <memory>
+#include <string>
 
 #include "Crypto.h"
 #include "LoginBlob.h"
@@ -37,6 +39,10 @@ struct Context {
 
   std::shared_ptr<TimeProvider> timeProvider;
   std::shared_ptr<cspot::MercurySession> session;
+
+  // optional: called with a track's cover url as soon as its metadata is known
+  // (also for preloaded tracks), so the cover can be fetched before playback
+  std::function<void(const std::string&)> onImageUrl;
   std::string getCredentialsJson() {
 #ifdef BELL_ONLY_CJSON
     cJSON* json_obj = cJSON_CreateObject();

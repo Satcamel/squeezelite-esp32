@@ -47,6 +47,11 @@ void cspot_disconnect(void);
  */
 bool cspot_credentials_ok(void);
 
+/**
+ * @brief     download a cover ahead of playback (cached for the track info)
+ */
+void cspot_artwork_prefetch(const char *url);
+
 #ifdef __cplusplus
 }
 #endif

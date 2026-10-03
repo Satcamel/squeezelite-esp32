@@ -368,6 +368,8 @@ void cspotPlayer::runTask() {
         CSPOT_LOG(info, "Spotify client launched for %s", name.c_str());
 
         auto ctx = cspot::Context::createFromBlob(blob);
+        // fetch covers while tracks are still loading, so they show with the audio
+        ctx->onImageUrl = [](const std::string& url) { cspot_artwork_prefetch(url.c_str()); };
 
         if (bitrate == 320) ctx->config.audioFormat = AudioFormat_OGG_VORBIS_320;
         else if (bitrate == 96) ctx->config.audioFormat = AudioFormat_OGG_VORBIS_96;

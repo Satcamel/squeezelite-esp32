@@ -525,8 +525,9 @@ static void displayer_task(void *args) {
 					GDS_TextLine(display, 1, GDS_TEXT_RIGHT, GDS_TEXT_UPDATE, _line);
 				}
 				
-				// if we have not received artwork after 5s, display a default icon
-				if (displayer.artwork.active && !displayer.artwork.updated && tick - displayer.artwork.tick > pdMS_TO_TICKS(5000)) {
+				// if we have not received artwork 5s after the track info, display a default icon
+				// (not counted from activation: the first track can take longer to start)
+				if (displayer.artwork.active && !displayer.artwork.updated && *displayer.string && tick - displayer.artwork.tick > pdMS_TO_TICKS(5000)) {
 					ESP_LOGI(TAG, "no artwork received, setting default");
 					displayer_artwork((uint8_t*) default_artwork);
 				}	
@@ -567,6 +568,13 @@ void displayer_artwork(uint8_t *data) {
  */
 bool displayer_can_artwork(void) {
 	return displayer.artwork.active;
+}
+
+/****************************************************************************************
+ * Artwork configured at all (even while no sink owns the display yet)
+ */
+bool displayer_artwork_enabled(void) {
+	return display && displayer.artwork.enable;
 }
 
 /****************************************************************************************

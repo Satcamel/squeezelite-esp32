@@ -238,7 +238,7 @@ typedef struct {
 	void *user_context;
 	http_download_cb_t callback;
 	size_t max, bytes, size;
-	bool abort;
+	bool abort, finished;
 	uint8_t *data;
 	esp_http_client_handle_t client;
 } http_context_t;
@@ -325,12 +325,15 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
 		break;
 	}
 	case HTTP_EVENT_ON_FINISH:
+		// the buffer belongs to the callback from now on
 		http_context->callback(http_context->data, http_context->bytes, http_context->user_context);
+		http_context->data = NULL;
+		http_context->finished = true;
 		break;
 	case HTTP_EVENT_DISCONNECTED: {
 		int mbedtls_err = 0;
 		esp_err_t err = esp_tls_get_and_clear_last_error(evt->data, &mbedtls_err, NULL);
-		if (err != ESP_OK) {
+		if (err != ESP_OK && !http_context->finished) {
 			ESP_LOGE(TAG, "HTTP download disconnect %d", err);
 			if (http_context->data) free(http_context->data);
 			http_context->callback(NULL, 0, http_context->user_context);

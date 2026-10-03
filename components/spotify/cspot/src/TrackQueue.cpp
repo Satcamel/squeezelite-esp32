@@ -211,6 +211,10 @@ void QueuedTrack::stepParseMetadata(Track* pbTrack, Episode* pbEpisode) {
     }
   }
 
+  if (ctx->onImageUrl && !trackInfo.imageUrl.empty()) {
+    ctx->onImageUrl(trackInfo.imageUrl);
+  }
+
   // Find playable file
   for (int x = 0; x < filesCount; x++) {
     CSPOT_LOG(debug, "File format: %d", selectedFiles[x].format);
@@ -492,14 +496,22 @@ void TrackQueue::processTrack(std::shared_ptr<QueuedTrack> track) {
       break;
     case QueuedTrack::State::CDN_REQUIRED:
       track->stepLoadCDNUrl(accessKey);
+      break;
+    case QueuedTrack::State::READY: {
+      // Preload the following track only once a track is actually playing: doing
+      // it while the player opens the current stream makes both TLS connections
+      // compete and delays the start (or skip) by ~0.5 s
+      std::scoped_lock lock(tracksMutex);
+      bool playing = std::any_of(preloadedTracks.begin(), preloadedTracks.end(),
+                                 [](auto& queued) { return queued->loading; });
 
-      if (track->state == QueuedTrack::State::READY) {
-        if (preloadedTracks.size() < MAX_TRACKS_PRELOAD) {
-          // Queue a new track to preload
-          queueNextTrack(preloadedTracks.size());
-        }
+      if (playing && preloadedTracks.size() < MAX_TRACKS_PRELOAD &&
+          !preloadedTracks.empty() && preloadedTracks.back() == track) {
+        // Queue a new track to preload
+        queueNextTrack(preloadedTracks.size());
       }
       break;
+    }
     default:
       // Do not perform any action
       break;
