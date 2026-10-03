@@ -168,6 +168,13 @@ void TrackPlayer::runTask() {
       }
     }
 
+    // A reset requested while we waited for the track to load (typical on the
+    // first play after connecting) would only be noticed after opening the
+    // stream, which then had to be opened a second time (~1 s): start over now
+    if (pendingReset) {
+      continue;
+    }
+
     CSPOT_LOG(info, "Got track ID=%s", track->identifier.c_str());
 
     currentSongPlaying = true;
