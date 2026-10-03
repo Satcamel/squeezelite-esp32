@@ -273,16 +273,17 @@ static void display_sleep(void) {
 }
 
 /****************************************************************************************
- * Color from RGB for whatever the screen supports (white on monochrome ones)
+ * Color from RGB for whatever the screen supports (white on monochrome ones). Like the
+ * JPEG scalers in gds_image.c, blue goes in the high bits (drivers set their BGR mode)
  */
 static int make_color(struct GDS_Device *Device, uint8_t r, uint8_t g, uint8_t b) {
 	switch (GDS_GetMode(Device)) {
-	case GDS_RGB565: return ((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3);
-	case GDS_RGB888: return (r << 16) | (g << 8) | b;
-	case GDS_RGB666: return ((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2);
-	case GDS_RGB555: return ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
-	case GDS_RGB444: return ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
-	case GDS_RGB332: return (r & 0xe0) | ((g & 0xe0) >> 3) | (b >> 6);
+	case GDS_RGB565: return ((b & 0xf8) << 8) | ((g & 0xfc) << 3) | (r >> 3);
+	case GDS_RGB888: return (b << 16) | (g << 8) | r;
+	case GDS_RGB666: return ((b >> 2) << 12) | ((g >> 2) << 6) | (r >> 2);
+	case GDS_RGB555: return ((b >> 3) << 10) | ((g >> 3) << 5) | (r >> 3);
+	case GDS_RGB444: return ((b >> 4) << 8) | ((g >> 4) << 4) | (r >> 4);
+	case GDS_RGB332: return (b & 0xe0) | ((g & 0xe0) >> 3) | (r >> 6);
 	case GDS_GRAYSCALE: return ((r * 30 + g * 59 + b * 11) / 100) >> (8 - GDS_GetDepth(Device));
 	default: return GDS_COLOR_WHITE;
 	}
