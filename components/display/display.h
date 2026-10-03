@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <stddef.h>
 #include "gds.h"
 
 
@@ -39,6 +40,8 @@ void displayer_scroll(char *string, int speed, int pause);
 void displayer_control(enum displayer_cmd_e cmd, ...);
 void displayer_metadata(char *artist, char *album, char *title);
 void displayer_artwork(uint8_t *data);
+// same with the JPEG size, so the artwork can be restored after the pause logo
+void displayer_artwork_len(uint8_t *data, size_t len);
 void displayer_timer(enum displayer_time_e mode, int elapsed, int duration);
 bool displayer_can_artwork(void);
 bool displayer_artwork_enabled(void);

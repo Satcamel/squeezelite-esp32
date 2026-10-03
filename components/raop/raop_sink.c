@@ -137,7 +137,8 @@ static bool cmd_handler(raop_event_t event, ...) {
 	}	
 	case RAOP_ARTWORK: {
 		uint8_t *data = va_arg(args, uint8_t*);
-		displayer_artwork(data);
+		int len = va_arg(args, int);
+		displayer_artwork_len(data, len > 0 ? len : 0);
 		break;
 	}
 	case RAOP_PROGRESS: {

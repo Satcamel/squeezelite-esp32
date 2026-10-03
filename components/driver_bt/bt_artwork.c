@@ -50,7 +50,7 @@ static void got_image(uint8_t *data, size_t len, void *context) {
 
 	if (CONTEXT_GEN(context) == generation) {
 		ESP_LOGI(TAG, "got artwork of %zu bytes", len);
-		displayer_artwork(data);
+		displayer_artwork_len(data, len);
 	}
 	free(data);
 }

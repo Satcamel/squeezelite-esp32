@@ -47,6 +47,7 @@ static const char *TAG = "display";
 #define WIFI_STACK_SIZE			(3*1024)
 
 extern const uint8_t default_artwork[]   asm("_binary_note_jpg_start");
+extern const uint8_t default_artwork_end[] asm("_binary_note_jpg_end");
 extern const uint8_t boot_logo[]         asm("_binary_bootlogo_jpg_start");
 
 static EXT_RAM_ATTR struct {
@@ -73,7 +74,13 @@ static EXT_RAM_ATTR struct {
 		int offset;
 	}  artwork;
 	TickType_t tick;
+	bool logo;		// boot logo shown while paused
 } displayer;
+
+// copy of the artwork on screen, to bring it back when playback resumes after a pause
+static EXT_RAM_ATTR struct {
+	uint8_t *data;
+} artwork_copy;
 
 // positions depending on the screen: small OLED (e.g. 128x64) or large color one (e.g. 320x240)
 static EXT_RAM_ATTR struct {
@@ -462,16 +469,16 @@ static void displayer_task(void *args) {
 			scroll_sleep = 0;
 			GDS_ClearExt(display, true);
 			GDS_TextLine(display, 1, GDS_TEXT_LEFT, GDS_TEXT_UPDATE, displayer.header);
-		} else if (displayer.refresh) {
+		} else if (displayer.refresh && !displayer.logo) {
 			// little trick when switching master while in IDLE and missing it
-			GDS_TextLine(display, 1, GDS_TEXT_LEFT, GDS_TEXT_CLEAR | GDS_TEXT_UPDATE, displayer.header);	
-			displayer.refresh = false;			
+			GDS_TextLine(display, 1, GDS_TEXT_LEFT, GDS_TEXT_CLEAR | GDS_TEXT_UPDATE, displayer.header);
+			displayer.refresh = false;
 		}
-		
+
 		// we have been waken up before our requested time
 		if (scroll_sleep <= 10) {
 			// something to scroll (or we'll wake-up every pause ms ... no big deal)
-			if (*displayer.string && displayer.state == DISPLAYER_ACTIVE) {
+			if (*displayer.string && displayer.state == DISPLAYER_ACTIVE && !displayer.logo) {
 				xSemaphoreTake(displayer.mutex, portMAX_DELAY);
 				
 				// need to work with local copies as we don't want to suspend caller
@@ -529,8 +536,8 @@ static void displayer_task(void *args) {
 				// (not counted from activation: the first track can take longer to start)
 				if (displayer.artwork.active && !displayer.artwork.updated && *displayer.string && tick - displayer.artwork.tick > pdMS_TO_TICKS(5000)) {
 					ESP_LOGI(TAG, "no artwork received, setting default");
-					displayer_artwork((uint8_t*) default_artwork);
-				}	
+					displayer_artwork_len((uint8_t*) default_artwork, default_artwork_end - default_artwork);
+				}
 				timer_sleep = 1000;
 			} else timer_sleep = max(1000 - elapsed, 0);	
 		} else timer_sleep = DEFAULT_SLEEP;
@@ -544,23 +551,70 @@ static void displayer_task(void *args) {
 }	
 
 /****************************************************************************************
- * 
+ *
  */
-void displayer_artwork(uint8_t *data) {
-	if (!displayer.artwork.active) return;
-	
+static void artwork_draw(uint8_t *data) {
 	int x = displayer.artwork.offset ? displayer.artwork.offset + ARTWORK_BORDER : 0;
 	int y = x ? 0 : layout.artwork_y;
 	int bottom = x ? GDS_GetHeight(display) - 1 : layout.artwork_bottom;
 	GDS_ClearWindow(display, x, y, -1, bottom, GDS_COLOR_BLACK);
+	if (data) GDS_DrawJPEGArea(display, data, x, y, GDS_GetWidth(display) - x, bottom - y + 1, GDS_IMAGE_CENTER | (displayer.artwork.fit ? GDS_IMAGE_FIT : 0));
+}
+
+// called with displayer.mutex taken
+static void artwork_set(uint8_t *data, size_t len) {
+	if (!displayer.artwork.active) return;
+
+	// keep a copy (when the size is known) to bring the screen back after the pause logo
+	if (data != artwork_copy.data) {
+		free(artwork_copy.data);
+		artwork_copy.data = NULL;
+		if (data && len && (artwork_copy.data = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) != NULL) {
+			memcpy(artwork_copy.data, data, len);
+		}
+	}
+
 	if (data) {
 		displayer.artwork.updated = true;
-		GDS_DrawJPEGArea(display, data, x, y, GDS_GetWidth(display) - x, bottom - y + 1, GDS_IMAGE_CENTER | (displayer.artwork.fit ? GDS_IMAGE_FIT : 0));
 	} else {
 		displayer.artwork.updated = false;
 		displayer.artwork.tick = xTaskGetTickCount();
-	}	
-	
+	}
+
+	// the pause logo stays until playback resumes
+	if (!displayer.logo) artwork_draw(data);
+}
+
+void displayer_artwork_len(uint8_t *data, size_t len) {
+	if (!display) return;
+	xSemaphoreTake(displayer.mutex, portMAX_DELAY);
+	artwork_set(data, len);
+	xSemaphoreGive(displayer.mutex);
+}
+
+void displayer_artwork(uint8_t *data) {
+	displayer_artwork_len(data, 0);
+}
+
+/****************************************************************************************
+ * Paused: show the boot logo (big screens), called with the mutex taken
+ */
+static void pause_logo_show(void) {
+	displayer.logo = true;
+	GDS_ClearExt(display, true);
+	GDS_DrawJPEG(display, (uint8_t*) boot_logo, 0, 0, GDS_IMAGE_CENTER | GDS_IMAGE_FIT);
+	GDS_Update(display);
+}
+
+// playback resumed: header, artwork, title and time back on screen
+static void pause_logo_restore(void) {
+	displayer.logo = false;
+	GDS_ClearExt(display, true);
+	GDS_TextLine(display, 1, GDS_TEXT_LEFT, GDS_TEXT_UPDATE, displayer.header);
+	if (artwork_copy.data) artwork_draw(artwork_copy.data);
+	displayer.offset = 0;
+	GDS_TextLine(display, 2, 0, GDS_TEXT_CLEAR | GDS_TEXT_UPDATE, displayer.string);
+	if (time_below()) draw_time_below(displayer.elapsed);
 }
 
 /****************************************************************************************
@@ -730,6 +784,7 @@ void displayer_control(enum displayer_cmd_e cmd, ...) {
 		displayer.duration.visible = false;
 		displayer.offset = displayer.boundary = 0;
 		displayer.artwork.tick = xTaskGetTickCount();
+		displayer.logo = false;
 		display_bus(&displayer, DISPLAY_BUS_TAKE);
 		if (displayer.artwork.active) GDS_SetTextWidth(display, displayer.artwork.offset);
 		vTaskResume(displayer.task);
@@ -738,25 +793,31 @@ void displayer_control(enum displayer_cmd_e cmd, ...) {
 	case DISPLAYER_SUSPEND:		
 		// task will display the line 2 from beginning and suspend
 		displayer.state = DISPLAYER_IDLE;
-		displayer_artwork(NULL);
+		displayer.logo = false;
+		artwork_set(NULL, 0);
 		display_bus(&displayer, DISPLAY_BUS_GIVE);
-		break;		
+		break;
 	case DISPLAYER_SHUTDOWN:
 		// let the task self-suspend (we might be doing i2c_write)
 		GDS_SetTextWidth(display, 0);
-		displayer_artwork(NULL);
+		displayer.logo = false;
+		artwork_set(NULL, 0);
 		displayer.state = DISPLAYER_DOWN;
 		display_bus(&displayer, DISPLAY_BUS_GIVE);
 		break;
 	case DISPLAYER_TIMER_RUN:
 		if (!displayer.timer) {
 			display_bus(&displayer, DISPLAY_BUS_TAKE);
-			displayer.timer = true;		
-			displayer.tick = xTaskGetTickCount();		
-		}	
+			displayer.timer = true;
+			displayer.tick = xTaskGetTickCount();
+		}
+		// resumed after a pause: title, artwork and time back
+		if (displayer.logo) pause_logo_restore();
 		break;
 	case DISPLAYER_TIMER_PAUSE:
 		displayer.timer = false;
+		// paused: boot logo on large screens (like when stopped)
+		if (layout.big && displayer.state == DISPLAYER_ACTIVE && !displayer.logo) pause_logo_show();
 		break;
 	default:
 		break;

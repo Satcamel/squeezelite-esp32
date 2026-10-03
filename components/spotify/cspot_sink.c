@@ -125,6 +125,7 @@ static EXT_RAM_ATTR struct {
 	struct {
 		char url[ARTWORK_URL_LEN];
 		uint8_t *data;
+		size_t len;
 		int seq;
 	} slot[ARTWORK_SLOTS];
 	int next, seq;
@@ -157,8 +158,9 @@ static void got_artwork(uint8_t* data, size_t len, void *context) {
 	} else {
 		ESP_LOGI(TAG, "got artwork of %zu bytes", len);
 		covers.slot[i].data = data;
+		covers.slot[i].len = len;
 		if (!strcmp(covers.wanted, covers.slot[i].url)) {
-			displayer_artwork(data);
+			displayer_artwork_len(data, len);
 			*covers.wanted = '\0';
 		}
 	}
@@ -203,7 +205,7 @@ static void artwork_show(const char *source) {
 	int i = artwork_find(url);
 	if (i >= 0 && covers.slot[i].data) {
 		ESP_LOGI(TAG, "artwork from cache");
-		displayer_artwork(covers.slot[i].data);
+		displayer_artwork_len(covers.slot[i].data, covers.slot[i].len);
 		*covers.wanted = '\0';
 	} else {
 		strlcpy(covers.wanted, url, ARTWORK_URL_LEN);
