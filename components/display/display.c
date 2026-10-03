@@ -443,7 +443,12 @@ static void displayer_task(void *args) {
 	while (1) {
 		// suspend ourselves if nothing to do
 		if (displayer.state < DISPLAYER_ACTIVE) {
-			if (displayer.state == DISPLAYER_IDLE) {
+			if (displayer.state == DISPLAYER_IDLE && layout.big) {
+				// nothing playing anymore: back to the boot logo instead of a stale title
+				GDS_ClearExt(display, true);
+				GDS_DrawJPEG(display, (uint8_t*) boot_logo, 0, 0, GDS_IMAGE_CENTER | GDS_IMAGE_FIT);
+				GDS_Update(display);
+			} else if (displayer.state == DISPLAYER_IDLE) {
 				// stale track time would be misleading once idle
 				if (time_below()) GDS_ClearWindow(display, 0, layout.time_top, -1, layout.time_bottom, GDS_COLOR_BLACK);
 				GDS_TextLine(display, 2, 0, GDS_TEXT_CLEAR | GDS_TEXT_UPDATE, displayer.string);
