@@ -152,9 +152,22 @@ void SpircHandler::handleFrame(std::vector<uint8_t>& data) {
     case MessageType_kMessageTypeNotify: {
       CSPOT_LOG(debug, "Notify frame");
 
-      // Pause the playback if another player took control
-      if (playbackState->isActive() &&
-          playbackState->remoteFrame.device_state.is_active) {
+      // Pause the playback if another player took control. Like librespot,
+      // only when it became active after us: right after a hand-over the
+      // previous device (e.g. the phone) still sends notifies saying it is
+      // active, which stopped the playback a few seconds after connecting
+      auto& remoteState = playbackState->remoteFrame.device_state;
+      auto& ownState = playbackState->innerFrame.device_state;
+      bool newer = !remoteState.has_became_active_at ||
+                   !ownState.has_became_active_at ||
+                   remoteState.became_active_at >= ownState.became_active_at;
+
+      if (playbackState->isActive() && remoteState.is_active && !newer) {
+        CSPOT_LOG(info, "Ignoring stale notify from %s (active since %lld, we since %lld)",
+                  frame.ident ? frame.ident : "?",
+                  (long long)remoteState.became_active_at,
+                  (long long)ownState.became_active_at);
+      } else if (playbackState->isActive() && remoteState.is_active) {
         CSPOT_LOG(info, "Another player took control (%s), pausing playback",
                   frame.ident ? frame.ident : "?");
         playbackState->setActive(false);
