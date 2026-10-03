@@ -127,6 +127,27 @@ void SpircHandler::handleFrame(std::vector<uint8_t>& data) {
   // Decode received spirc frame
   playbackState->decodeRemoteFrame(data);
 
+  // Like librespot: every device of the account gets every frame. Ignore our
+  // own ones (echoed back) and those addressed to other devices only, otherwise
+  // e.g. a notify could be taken for "another player took control" and stop
+  // the playback right after it was handed to us
+  auto& frame = playbackState->remoteFrame;
+  const std::string& self = ctx->config.deviceId;
+
+  if (frame.ident && self == frame.ident) {
+    return;
+  }
+
+  if (frame.recipient_count > 0) {
+    bool forUs = false;
+    for (pb_size_t i = 0; i < frame.recipient_count; i++) {
+      if (frame.recipient[i] && self == frame.recipient[i]) forUs = true;
+    }
+    if (!forUs) {
+      return;
+    }
+  }
+
   switch (playbackState->remoteFrame.typ) {
     case MessageType_kMessageTypeNotify: {
       CSPOT_LOG(debug, "Notify frame");
@@ -134,7 +155,8 @@ void SpircHandler::handleFrame(std::vector<uint8_t>& data) {
       // Pause the playback if another player took control
       if (playbackState->isActive() &&
           playbackState->remoteFrame.device_state.is_active) {
-        CSPOT_LOG(debug, "Another player took control, pausing playback");
+        CSPOT_LOG(info, "Another player took control (%s), pausing playback",
+                  frame.ident ? frame.ident : "?");
         playbackState->setActive(false);
 
         this->trackPlayer->stop();
