@@ -50,6 +50,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gartenhaus-esp32-16bit
+          # the binary contains the Spotify client secret and the repo is public:
+          # keep it only long enough to download and flash it
+          retention-days: 1
           path: |
             build/squeezelite.bin
             build/recovery.bin
